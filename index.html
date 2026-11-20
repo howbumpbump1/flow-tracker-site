@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="flow-mode" content="public">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>交易所資金流追蹤</title>
+<meta name="description" content="Binance、OKX、Bybit 的 BTC、ETH、USDT、USDC 每日淨流入／流出，加上美國現貨 ETF 每日淨流入。">
+<meta property="og:title" content="交易所資金流追蹤">
+<meta property="og:description" content="Binance、OKX、Bybit 錢包每日淨流入／流出＋美國現貨 ETF 流量，每 3 小時更新。">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='2' y='3' width='3' height='7' rx='1' fill='%232a78d6'/%3E%3Crect x='6.5' y='6' width='3' height='7' rx='1' fill='%23eb6834'/%3E%3Crect x='11' y='2' width='3' height='8' rx='1' fill='%232a78d6'/%3E%3C/svg%3E">
+<style>
+  .viz-root {
+    color-scheme: light;
+    --page: #f9f9f7;
+    --surface-1: #fcfcfb;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted: #898781;
+    --grid: #e1e0d9;
+    --baseline: #c3c2b7;
+    --border: rgba(11,11,11,0.10);
+    --hover-wash: rgba(11,11,11,0.05);
+    --pos: #2a78d6;          /* 流入交易所 */
+    --neg: #eb6834;          /* 流出交易所 */
+    --anomaly: #898781;      /* 疑似錢包清單變動 */
+    --warning: #fab219;
+    --chip-on: #0b0b0b;
+    --chip-on-text: #fcfcfb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) .viz-root {
+      color-scheme: dark;
+      --page: #0d0d0d;
+      --surface-1: #1a1a19;
+      --text-primary: #f0efec;
+      --text-secondary: #c3c2b7;
+      --text-muted: #898781;
+      --grid: #2c2c2a;
+      --baseline: #383835;
+      --border: rgba(255,255,255,0.10);
+      --hover-wash: rgba(255,255,255,0.06);
+      --pos: #3987e5;
+      --neg: #d95926;
+      --anomaly: #898781;
+      --chip-on: #f0efec;
+      --chip-on-text: #1a1a19;
+    }
+  }
+  :root[data-theme="dark"] .viz-root {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface-1: #1a1a19; --text-primary: #f0efec; --text-secondary: #c3c2b7;
+    --text-muted: #898781; --grid: #2c2c2a; --baseline: #383835; --border: rgba(255,255,255,0.10);
+    --hover-wash: rgba(255,255,255,0.06); --pos: #3987e5; --neg: #d95926; --anomaly: #898781;
+    --chip-on: #f0efec; --chip-on-text: #1a1a19;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body.viz-root {
+    background: var(--page);
+    color: var(--text-primary);
+    font: 14px/1.5 system-ui, -apple-system, "PingFang TC", "Noto Sans TC", "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 1320px; margin: 0 auto; padding: 24px 20px 64px; }
+  header.top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px 24px; margin-bottom: 16px; }
+  h1 { font-size: 22px; font-weight: 600; margin: 0 0 2px; letter-spacing: 0.01em; }
+  .sub { color: var(--text-secondary); margin: 0; }
+  .meta { display: flex; align-items: center; gap: 12px; color: var(--text-secondary); font-size: 13px; }
+  button { font: inherit; color: inherit; }
+  .btn { border: 1px solid var(--border); background: var(--surface-1); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+  .btn:hover { background: var(--hover-wash); }
+  .btn:disabled { opacity: .5; cursor: default; }
+
+  .filters { display: flex; flex-wrap: wrap; gap: 10px 20px; align-items: center; margin: 0 0 16px; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface-1); }
+  .seg button { border: 0; background: transparent; padding: 6px 12px; cursor: pointer; }
+  .seg button + button { border-left: 1px solid var(--border); }
+  .seg button:hover { background: var(--hover-wash); }
+  .seg button[aria-pressed="true"] { background: var(--chip-on); color: var(--chip-on-text); font-weight: 600; }
+  .flabel { color: var(--text-muted); font-size: 12px; margin-right: 6px; }
+
+  .notice { border: 1px solid var(--border); background: var(--surface-1); border-radius: 10px; padding: 10px 14px; margin: 0 0 12px; color: var(--text-secondary); font-size: 13px; }
+  .notice b { color: var(--text-primary); }
+  .notice .icon { display: inline-block; width: 18px; text-align: center; }
+
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+  .summary { margin-bottom: 20px; overflow-x: auto; }
+  .summary h2, .coin h2 { font-size: 15px; font-weight: 600; margin: 0; }
+  .summary .hint { color: var(--text-muted); font-size: 12px; margin: 2px 0 10px; }
+  .sum-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  th, td { padding: 7px 10px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--grid); }
+  th:first-child, td:first-child { text-align: left; }
+  thead th { color: var(--text-muted); font-weight: 500; font-size: 12px; }
+  tbody tr:last-child td { border-bottom: 0; }
+  td .sw { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; vertical-align: 1px; }
+  td .date { display: block; color: var(--text-muted); font-size: 11px; }
+  td.muted { color: var(--text-muted); }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--text-secondary); font-size: 13px; margin: 0 0 12px; }
+  .legend .k { display: inline-flex; align-items: center; gap: 6px; }
+  .legend .sq { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  .legend .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--anomaly); }
+  .legend .faded { opacity: .45; }
+
+  .coin { margin-top: 22px; }
+  .coin-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin: 0 0 10px; }
+  .coin-head .hint { color: var(--text-muted); font-size: 12px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+  .chart-card { padding: 12px 12px 8px; }
+  .chart-card h3 { font-size: 13px; font-weight: 600; margin: 0; color: var(--text-primary); }
+  .chart-card .now { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+  .chart-card .val { font-size: 13px; color: var(--text-secondary); }
+  .chart-card .val b { color: var(--text-primary); font-weight: 600; }
+  .chart-card .empty { color: var(--text-muted); font-size: 13px; padding: 40px 0; text-align: center; }
+  .plot { position: relative; }
+  .plot svg { display: block; width: 100%; height: auto; overflow: visible; }
+  .plot svg:focus { outline: 2px solid var(--pos); outline-offset: 2px; border-radius: 4px; }
+  .tick { fill: var(--text-muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+  .gridline { stroke: var(--grid); stroke-width: 1; shape-rendering: crispEdges; }
+  .base { stroke: var(--baseline); stroke-width: 1; shape-rendering: crispEdges; }
+  .bar-pos { fill: var(--pos); }
+  .bar-neg { fill: var(--neg); }
+  .bar-partial { opacity: .45; }
+  .anom { fill: var(--anomaly); stroke: var(--surface-1); stroke-width: 2; }
+  .hoverband { fill: var(--hover-wash); }
+
+  .tip { position: fixed; z-index: 10; pointer-events: none; background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; box-shadow: 0 4px 16px rgba(0,0,0,.12); font-size: 12px; color: var(--text-secondary); max-width: 260px; display: none; }
+  .tip .v { color: var(--text-primary); font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+  .tip .key { width: 10px; height: 2px; border-radius: 1px; display: inline-block; }
+  .tip .row { margin-top: 2px; }
+  .tip .warn { color: var(--text-primary); margin-top: 4px; }
+
+  .tables { margin-top: 12px; display: none; }
+  .tables.on { display: block; }
+  .tables .card { max-height: 420px; overflow: auto; }
+  .tables thead th { position: sticky; top: 0; background: var(--surface-1); }
+
+  footer { margin-top: 36px; color: var(--text-muted); font-size: 12px; line-height: 1.7; }
+  footer a { color: inherit; }
+  .loading { opacity: .5; transition: opacity .2s; }
+</style>
+</head>
+<body class="viz-root">
+<div class="wrap" id="app">
+  <header class="top">
+    <div>
+      <h1>交易所資金流追蹤</h1>
+      <p class="sub">Binance・OKX・Bybit 錢包每日淨流入／流出，加上美國現貨 ETF 每日淨流入</p>
+    </div>
+    <div class="meta">
+      <span id="updated">載入中…</span>
+      <button class="btn" id="refresh" type="button">立即更新</button>
+    </div>
+  </header>
+
+  <div class="filters" role="toolbar" aria-label="篩選">
+    <span><span class="flabel">期間</span><span class="seg" data-key="range">
+      <button type="button" data-v="30">30 天</button><button type="button" data-v="90">90 天</button><button type="button" data-v="180">180 天</button><button type="button" data-v="365">1 年</button>
+    </span></span>
+    <span><span class="flabel">單位</span><span class="seg" data-key="unit">
+      <button type="button" data-v="coin">幣量</button><button type="button" data-v="usd">美元</button>
+    </span></span>
+    <span><span class="flabel">刻度</span><span class="seg" data-key="scale">
+      <button type="button" data-v="shared">同幣種共用</button><button type="button" data-v="own">各自</button>
+    </span></span>
+    <span><span class="seg" data-key="table">
+      <button type="button" data-v="off">圖表</button><button type="button" data-v="on">＋表格</button>
+    </span></span>
+  </div>
+
+  <div id="notices"></div>
+
+  <section class="card summary" aria-labelledby="sum-h">
+    <div class="sum-head">
+      <h2 id="sum-h">最近一個完整日</h2>
+      <span class="seg" data-key="day">
+        <button type="button" data-v="complete">最近完整日</button><button type="button" data-v="today">今天至目前</button>
+      </span>
+    </div>
+    <p class="hint" id="sum-hint"></p>
+    <table id="sum-table"></table>
+  </section>
+
+  <div class="legend" aria-label="圖例">
+    <span class="k"><span class="sq" style="background:var(--pos)"></span>流入交易所（正值）</span>
+    <span class="k"><span class="sq" style="background:var(--neg)"></span>流出交易所（負值）</span>
+    <span class="k"><span class="sq faded" style="background:var(--pos)"></span>淡色＝今天至目前，還沒收盤</span>
+    <span class="k"><span class="dot"></span>疑似錢包清單變動，不是真的資金進出，不計入刻度</span>
+  </div>
+
+  <div id="coins"></div>
+
+  <footer>
+    <div>資料來源：交易所錢包餘額來自 <a href="https://defillama.com/cexs" target="_blank" rel="noopener">DefiLlama CEX Transparency</a>（交易所公布的錢包地址）；美國現貨 ETF 來自 CoinAnk。</div>
+    <div>算法：每天 00:00（UTC，台灣時間早上 8 點）的幣量相減＝當日淨流入／流出。用幣量相減，幣價漲跌不會被誤算成資金進出；美元＝幣量變化 × 當時價格。</div>
+    <div>ETH 包含 WETH；USDT、USDC 已合併各條鏈（含 Tron）。Coinbase 不在 DefiLlama 的追蹤名單，所以用美國 ETF 代表美國機構這一側。</div>
+  </footer>
+</div>
+<div class="tip" id="tip" role="status" aria-live="polite"></div>
+
+<script>
+(() => {
+  'use strict';
+
+  const COIN_HINT = {
+    BTC: '流入交易所多半是準備賣出或當合約保證金；流出多半是提走自己保管。',
+    ETH: '流入交易所多半是準備賣出或當合約保證金；流出多半是提走自己保管。',
+    USDT: '穩定幣流入交易所多半是準備買幣；流出代表買盤資金離開。',
+    USDC: '穩定幣流入交易所多半是準備買幣；流出代表買盤資金離開。',
+  };
+  const ETF_HINT = '淨流入＝美國機構透過 ETF 買進現貨（大多託管在 Coinbase）。';
+
+  const PUBLIC = (document.querySelector('meta[name="flow-mode"]') || {}).content === 'public';
+  if (PUBLIC) document.getElementById('refresh').remove();
+  const state = { range: 90, unit: 'coin', scale: 'shared', table: 'off', day: 'complete' };
+  try {
+    const saved = JSON.parse(localStorage.getItem('flow-tracker-ui') || '{}');
+    for (const k of Object.keys(state)) if (saved[k] != null) state[k] = k === 'range' ? Number(saved[k]) : saved[k];
+  } catch (e) { /* localStorage 不可用就用預設 */ }
+
+  let DATA = null;
+
+  // ---------- 格式 ----------
+  const nfCompact = new Intl.NumberFormat('zh-TW', { notation: 'compact', maximumFractionDigits: 1 });
+  const nfInt = new Intl.NumberFormat('zh-TW', { maximumFractionDigits: 0 });
+  const nf2 = new Intl.NumberFormat('zh-TW', { maximumFractionDigits: 2 });
+  function fmtNum(v) {
+    const a = Math.abs(v);
+    if (a >= 1e5) return nfCompact.format(v);
+    if (a >= 100) return nfInt.format(v);
+    return nf2.format(v);
+  }
+  function fmtSigned(v, unit, coin) {
+    if (v == null || !Number.isFinite(v)) return '—';
+    const sign = v > 0 ? '+' : v < 0 ? '−' : '';
+    const body = fmtNum(Math.abs(v));
+    return unit === 'usd' ? `${sign}$${body}` : `${sign}${body} ${coin}`;
+  }
+  function fmtTick(v, unit) {
+    if (v === 0) return '0';
+    const s = v < 0 ? '−' : '';
+    const body = fmtNum(Math.abs(v));
+    return unit === 'usd' ? `${s}$${body}` : s + body;
+  }
+  const mmdd = (d) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
+  function taipei(iso) {
+    return new Date(iso).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
+  }
+  function el(tag, attrs, ...kids) {
+    const n = document.createElement(tag);
+    if (attrs) for (const [k, v] of Object.entries(attrs)) {
+      if (k === 'class') n.className = v; else if (k === 'text') n.textContent = v; else n.setAttribute(k, v);
+    }
+    for (const k of kids) if (k != null) n.append(k);
+    return n;
+  }
+  const SVGNS = 'http://www.w3.org/2000/svg';
+  function sv(tag, attrs) {
+    const n = document.createElementNS(SVGNS, tag);
+    for (const [k, v] of Object.entries(attrs || {})) n.setAttribute(k, v);
+    return n;
+  }
+
+  // ---------- 日期軸 ----------
+  function addDays(d, n) { const t = new Date(d + 'T00:00:00Z'); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); }
+  function latestDay() {
+    let max = '';
+    for (const id of DATA.exchangeOrder) {
+      const ex = DATA.exchanges[id]; if (!ex) continue;
+      for (const c of DATA.coinOrder) { const s = ex.coins[c] || []; if (s.length && s[s.length - 1].d > max) max = s[s.length - 1].d; }
+    }
+    for (const c of Object.keys(DATA.etf || {})) { const s = DATA.etf[c]; if (s.length && s[s.length - 1].d > max) max = s[s.length - 1].d; }
+    return max;
+  }
+  function lastCompleteDay() {
+    let max = '';
+    for (const id of DATA.exchangeOrder) {
+      const ex = DATA.exchanges[id]; if (!ex) continue;
+      for (const c of DATA.coinOrder) for (const p of ex.coins[c] || []) if (!p.partial && p.d > max) max = p.d;
+    }
+    return max;
+  }
+  // 超過 120 天改成每週加總，避免一根根擠在一起
+  function buildAxis() {
+    const end = latestDay();
+    const start = addDays(end, -(state.range - 1));
+    const weekly = state.range > 120;
+    const buckets = [];
+    if (!weekly) {
+      for (let d = start; d <= end; d = addDays(d, 1)) buckets.push({ key: d, from: d, to: d });
+    } else {
+      for (let d = start; d <= end; d = addDays(d, 7)) { const to = addDays(d, 6) > end ? end : addDays(d, 6); buckets.push({ key: d, from: d, to }); }
+    }
+    const index = new Map();
+    buckets.forEach((b, i) => { for (let d = b.from; d <= b.to; d = addDays(d, 1)) index.set(d, i); });
+    return { buckets, index, weekly, start, end };
+  }
+
+  // 把一條資料（交易所或 ETF）放到軸上
+  function bucketize(series, axis, kind) {
+    const out = axis.buckets.map((b) => ({ b, v: null, coinV: null, usdV: null, bal: null, anomaly: false, partial: false, count: 0, pts: [] }));
+    for (const p of series || []) {
+      const i = axis.index.get(p.d); if (i == null) continue;
+      const o = out[i];
+      o.pts.push(p);
+      if (p.anomaly) { o.anomaly = true; continue; }
+      o.coinV = (o.coinV || 0) + p.flow;
+      o.usdV = (o.usdV || 0) + p.flowUsd;
+      o.count++;
+      if (p.partial) o.partial = true;
+      if (p.bal != null) o.bal = p.bal;
+    }
+    for (const o of out) {
+      o.v = state.unit === 'usd' ? o.usdV : o.coinV;
+      if (o.anomaly && o.count === 0) o.v = null;
+    }
+    return out;
+  }
+
+  // ---------- 刻度 ----------
+  function niceStep(span, n) {
+    const raw = span / n; const p = Math.pow(10, Math.floor(Math.log10(raw))); const f = raw / p;
+    return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * p;
+  }
+  function niceDomain(lo, hi) {
+    lo = Math.min(0, lo); hi = Math.max(0, hi);
+    if (lo === hi) { hi = 1; }
+    const step = niceStep(hi - lo, 4);
+    const nlo = Math.floor(lo / step) * step, nhi = Math.ceil(hi / step) * step;
+    const ticks = []; for (let t = nlo; t <= nhi + step / 2; t += step) ticks.push(Math.abs(t) < step / 1e6 ? 0 : t);
+    return { lo: nlo, hi: nhi, ticks };
+  }
+  function extent(rows) {
+    let lo = 0, hi = 0;
+    for (const o of rows) if (o.v != null) { lo = Math.min(lo, o.v); hi = Math.max(hi, o.v); }
+    return [lo, hi];
+  }
+
+  // ---------- 圖 ----------
+  const tip = document.getElementById('tip');
+  function barPath(x, w, y0, y1) {
+    // y0 = 基準線，y1 = 資料端；資料端 4px 圓角、基準線端方角
+    const h = Math.abs(y1 - y0); if (h < 0.5) return '';
+    const r = Math.min(4, w / 2, h);
+    if (y1 < y0) { // 往上
+      return `M${x},${y0}V${y1 + r}Q${x},${y1} ${x + r},${y1}H${x + w - r}Q${x + w},${y1} ${x + w},${y1 + r}V${y0}Z`;
+    }
+    return `M${x},${y0}V${y1 - r}Q${x},${y1} ${x + r},${y1}H${x + w - r}Q${x + w},${y1} ${x + w},${y1 - r}V${y0}Z`;
+  }
+
+  function drawChart(host, rows, dom, opts) {
+    host.textContent = '';
+    const W = Math.max(240, Math.round(host.clientWidth || 300));
+    const H = 168, m = { t: 8, r: 6, b: 20, l: 46 };
+    const pw = W - m.l - m.r, ph = H - m.t - m.b;
+    const n = rows.length, band = pw / n;
+    const bw = Math.max(1, Math.min(24, band >= 4 ? band - 2 : band * 0.8));
+    const y = (v) => m.t + (dom.hi - v) / (dom.hi - dom.lo) * ph;
+    const y0 = y(0);
+    const svg = sv('svg', { viewBox: `0 0 ${W} ${H}`, width: W, height: H, tabindex: '0', role: 'img', 'aria-label': opts.label + '，每日淨流入流出長條圖；用左右鍵查看每一天' });
+
+    for (const t of dom.ticks) {
+      const ty = Math.round(y(t)) + 0.5;
+      if (t !== 0) svg.append(sv('line', { x1: m.l, x2: W - m.r, y1: ty, y2: ty, class: 'gridline' }));
+      const lab = sv('text', { x: m.l - 6, y: ty + 3, 'text-anchor': 'end', class: 'tick' }); lab.textContent = fmtTick(t, state.unit); svg.append(lab);
+    }
+    const hb = sv('rect', { x: 0, y: m.t, width: 0, height: ph, class: 'hoverband', visibility: 'hidden' });
+    svg.append(hb);
+
+    rows.forEach((o, i) => {
+      const x = m.l + i * band + (band - bw) / 2;
+      if (o.v != null && o.v !== 0) {
+        const p = barPath(x, bw, y0, y(o.v));
+        if (p) svg.append(sv('path', { d: p, class: (o.v > 0 ? 'bar-pos' : 'bar-neg') + (o.partial ? ' bar-partial' : '') }));
+      }
+      if (o.anomaly) svg.append(sv('circle', { cx: m.l + i * band + band / 2, cy: y0, r: 4, class: 'anom' }));
+    });
+    svg.append(sv('line', { x1: m.l, x2: W - m.r, y1: Math.round(y0) + 0.5, y2: Math.round(y0) + 0.5, class: 'base' }));
+
+    // x 軸：頭、中、尾
+    const lbl = [0, Math.floor((n - 1) / 2), n - 1];
+    [...new Set(lbl)].forEach((i, k, arr) => {
+      const t = sv('text', { x: m.l + i * band + band / 2, y: H - 5, 'text-anchor': k === 0 ? 'start' : k === arr.length - 1 ? 'end' : 'middle', class: 'tick' });
+      if (k === 0) t.setAttribute('x', m.l); if (k === arr.length - 1) t.setAttribute('x', W - m.r);
+      t.textContent = mmdd(rows[i].b.key); svg.append(t);
+    });
+
+    let cur = -1;
+    function show(i, clientX, clientY) {
+      if (i < 0 || i >= n) return hide();
+      cur = i;
+      const o = rows[i];
+      hb.setAttribute('x', m.l + i * band); hb.setAttribute('width', Math.max(band, 2)); hb.setAttribute('visibility', 'visible');
+      tip.textContent = '';
+      const val = o.v == null ? (o.anomaly ? '不計入' : '無資料') : fmtSigned(o.v, state.unit, opts.coin);
+      const key = el('span', { class: 'key' }); key.style.background = o.v == null ? 'var(--anomaly)' : o.v >= 0 ? 'var(--pos)' : 'var(--neg)';
+      tip.append(el('div', { class: 'v' }, key, el('span', { text: val })));
+      const range = o.b.from === o.b.to ? o.b.from : `${o.b.from} ～ ${o.b.to}（每週加總）`;
+      tip.append(el('div', { class: 'row', text: `${opts.label}・${range}` }));
+      if (state.unit === 'usd' && o.coinV != null) tip.append(el('div', { class: 'row', text: `幣量 ${fmtSigned(o.coinV, 'coin', opts.coin)}` }));
+      if (state.unit === 'coin' && o.usdV != null && o.usdV !== 0) tip.append(el('div', { class: 'row', text: `約 ${fmtSigned(o.usdV, 'usd')}` }));
+      if (o.bal != null && opts.kind === 'ex') tip.append(el('div', { class: 'row', text: `收盤餘額 ${fmtNum(o.bal)} ${opts.coin}` }));
+      if (o.partial) {
+        const p = o.pts.find((q) => q.partial);
+        tip.append(el('div', { class: 'row', text: p && p.late
+          ? `DefiLlama 這天的收盤資料還沒出來，暫時算到 ${taipei(p.asOf * 1000)}`
+          : p && p.asOf ? `今天還沒收盤，算到 ${taipei(p.asOf * 1000)}` : '今天還沒收盤' }));
+      }
+      if (o.anomaly) {
+        const a = o.pts.filter((q) => q.anomaly).map((q) => fmtSigned(state.unit === 'usd' ? q.flowUsd : q.flow, state.unit, opts.coin));
+        tip.append(el('div', { class: 'warn', text: `⚠ 單日變化超過餘額 ${typeof DATA.anomalyPct === 'object' ? DATA.anomalyPct[opts.coin] : DATA.anomalyPct}%（${a.join('、')}），多半是交易所新增或移除追蹤錢包，不是真的資金進出。` }));
+      }
+      if (opts.kind === 'etf') {
+        const tick = [];
+        for (const p of o.pts) for (const t of p.byTicker || []) { const v = state.unit === 'usd' ? t.flowUsd : t.flow; if (v) tick.push([t.t, v]); }
+        tick.sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+        if (tick.length) tip.append(el('div', { class: 'row', text: tick.slice(0, 4).map(([t, v]) => `${t} ${fmtSigned(v, state.unit, opts.coin)}`).join('、') }));
+      }
+      tip.style.display = 'block';
+      const r = svg.getBoundingClientRect();
+      const bx = clientX != null ? clientX : r.left + (m.l + i * band + band / 2) * (r.width / W);
+      const by = clientY != null ? clientY : r.top + 20;
+      const tw = tip.offsetWidth, th = tip.offsetHeight;
+      let left = bx + 14; if (left + tw > window.innerWidth - 8) left = bx - tw - 14;
+      let top = by - th - 10; if (top < 8) top = by + 16;
+      tip.style.left = Math.max(8, left) + 'px'; tip.style.top = top + 'px';
+    }
+    function hide() { cur = -1; tip.style.display = 'none'; hb.setAttribute('visibility', 'hidden'); }
+    svg.addEventListener('pointermove', (e) => {
+      const r = svg.getBoundingClientRect();
+      const px = (e.clientX - r.left) * (W / r.width);
+      const i = Math.floor((px - m.l) / band);
+      if (px < m.l - 4 || i >= n) return hide();
+      show(Math.max(0, i), e.clientX, e.clientY);
+    });
+    svg.addEventListener('pointerleave', hide);
+    svg.addEventListener('blur', hide);
+    svg.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        const next = cur < 0 ? n - 1 : Math.min(n - 1, Math.max(0, cur + (e.key === 'ArrowRight' ? 1 : -1)));
+        show(next);
+      } else if (e.key === 'Escape') hide();
+    });
+    host.append(svg);
+  }
+
+  // ---------- 主畫面 ----------
+  function renderNotices() {
+    const box = document.getElementById('notices'); box.textContent = '';
+    if (DATA.etfStatus === 'no-key' && !PUBLIC) {
+      box.append(el('div', { class: 'notice' }, el('span', { class: 'icon', text: 'ℹ︎' }), el('b', { text: '美國 ETF 還沒開：' }), document.createTextNode('在 .env 填入 COINANK_API_KEY 後執行 pm2 restart flow-tracker，ETF 那欄就會出現。')));
+    }
+    if (DATA.errors && DATA.errors.length) {
+      const n = el('div', { class: 'notice' }, el('span', { class: 'icon', text: '⚠' }), el('b', { text: '這次更新有部分失敗，畫面先用上一次的資料：' }));
+      const ul = el('ul', { style: 'margin:6px 0 0 18px;padding:0' });
+      for (const e of DATA.errors) ul.append(el('li', { text: e }));
+      n.append(ul); box.append(n);
+    }
+  }
+
+  const etfOn = () => DATA.etfStatus !== 'hidden' && !(PUBLIC && DATA.etfStatus === 'no-key');
+
+  function exPoint(exId, coin, day) {
+    const s = DATA.exchanges[exId]?.coins?.[coin] || [];
+    return s.find((p) => p.d === day) || null;
+  }
+
+  function cell(v, unit, coin, anomaly, extra) {
+    const td = el('td');
+    if (anomaly) { td.className = 'muted'; td.textContent = '⚠ 不計入'; td.title = '疑似錢包清單變動'; return td; }
+    if (v == null) { td.className = 'muted'; td.textContent = '—'; return td; }
+    if (v !== 0) { const sw = el('span', { class: 'sw' }); sw.style.background = v > 0 ? 'var(--pos)' : 'var(--neg)'; td.append(sw); }
+    td.append(document.createTextNode(fmtSigned(v, unit, coin)));
+    if (extra) td.append(el('span', { class: 'date', text: extra }));
+    return td;
+  }
+
+  function todayDay() {
+    let max = '';
+    for (const id of DATA.exchangeOrder) {
+      const ex = DATA.exchanges[id]; if (!ex) continue;
+      for (const c of DATA.coinOrder) for (const p of ex.coins[c] || []) if (p.partial && p.d > max) max = p.d;
+    }
+    return max;
+  }
+  function renderSummary() {
+    const today = state.day === 'today' ? todayDay() : '';
+    const isToday = !!today;
+    const day = isToday ? today : lastCompleteDay();
+    let late = false;
+    if (isToday) for (const id of DATA.exchangeOrder) for (const c of DATA.coinOrder) { const p = exPoint(id, c, day); if (p && p.late) late = true; }
+    if (isToday && late) {
+      document.getElementById('sum-h').textContent = `${day}（UTC，暫算）`;
+      document.getElementById('sum-hint').textContent = `DefiLlama 每天 00:00 UTC 的收盤資料會晚幾個小時才出來；在那之前，這一天先暫時算到每格下方的時間，今天的數字也要等收盤資料出來才有。下次更新會自動改成正確數字。`;
+    } else if (isToday) {
+      document.getElementById('sum-h').textContent = `今天至目前：${day}（UTC）`;
+      document.getElementById('sum-hint').textContent = `台灣時間 ${mmdd(day)} 早上 8 點起，算到每格下方的時間（DefiLlama 每家交易所更新時間不同）。還沒收盤，數字會繼續變。${etfOn() ? '美國 ETF 要等美股收盤後（台灣隔天早上）才有當天數字，這裡先顯示最近一個交易日。' : ''}`;
+    } else {
+      document.getElementById('sum-h').textContent = `最近一個完整日：${day}（UTC）`;
+      document.getElementById('sum-hint').textContent = `台灣時間 ${mmdd(day)} 早上 8 點到 ${mmdd(addDays(day, 1))} 早上 8 點。${etfOn() ? 'ETF 是美股最近一個交易日。' : ''}正值＝流入交易所，負值＝流出。`;
+    }
+    const t = document.getElementById('sum-table'); t.textContent = '';
+    const head = el('tr', null, el('th', { text: '幣種' }));
+    for (const id of DATA.exchangeOrder) head.append(el('th', { text: DATA.exchanges[id]?.name || DATA.exchangeNames?.[id] || id }));
+    head.append(el('th', { text: '三家合計' }));
+    if (etfOn()) head.append(el('th', { text: '美國現貨 ETF' }));
+    t.append(el('thead', null, head));
+    const tb = el('tbody');
+    for (const coin of DATA.coinOrder) {
+      const tr = el('tr', null, el('td', { text: coin }));
+      let sum = 0, any = false, anyAnom = false;
+      for (const id of DATA.exchangeOrder) {
+        const p = exPoint(id, coin, day);
+        const v = p ? (state.unit === 'usd' ? p.flowUsd : p.flow) : null;
+        const asOf = isToday && p && p.asOf ? `${p.late ? '暫算到' : '算到'} ${p.late ? taipei(p.asOf * 1000) : taipei(p.asOf * 1000).replace(/^.*\s/, '')}` : null;
+        tr.append(cell(v, state.unit, coin, p && p.anomaly, asOf));
+        if (p && !p.anomaly) { sum += v; any = true; } if (p && p.anomaly) anyAnom = true;
+      }
+      tr.append(cell(any ? sum : null, state.unit, coin, false, anyAnom ? '不含 ⚠ 的交易所' : null));
+      const etf = DATA.etf?.[coin];
+      if (!etfOn()) { /* 不顯示 ETF 欄 */ }
+      else if (etf && etf.length) {
+        const last = etf[etf.length - 1];
+        tr.append(cell(state.unit === 'usd' ? last.flowUsd : last.flow, state.unit, coin, false, last.d));
+      } else tr.append(el('td', { class: 'muted', text: (coin === 'BTC' || coin === 'ETH') ? (DATA.etfStatus === 'no-key' ? '未設定' : '—') : '無 ETF' }));
+      tb.append(tr);
+    }
+    t.append(tb);
+  }
+
+  function renderCoins() {
+    const axis = buildAxis();
+    const root = document.getElementById('coins'); root.textContent = '';
+    for (const coin of DATA.coinOrder) {
+      const sec = el('section', { class: 'coin', 'aria-label': coin });
+      sec.append(el('div', { class: 'coin-head' }, el('h2', { text: coin }), el('span', { class: 'hint', text: COIN_HINT[coin] || '' }), axis.weekly ? el('span', { class: 'hint', text: '（1 年檢視：每根＝一週加總）' }) : null));
+      const grid = el('div', { class: 'grid' });
+      const charts = [];
+      for (const id of DATA.exchangeOrder) {
+        const ex = DATA.exchanges[id]; if (!ex) continue;
+        charts.push({ label: ex.name, kind: 'ex', rows: bucketize(ex.coins[coin], axis), stale: ex.stale });
+      }
+      if (!etfOn()) { /* 不顯示 ETF 圖 */ }
+      else if (DATA.etf && DATA.etf[coin]) charts.push({ label: '美國現貨 ETF', kind: 'etf', rows: bucketize(DATA.etf[coin], axis), hint: ETF_HINT });
+      else if ((coin === 'BTC' || coin === 'ETH') && DATA.etfStatus === 'no-key') charts.push({ label: '美國現貨 ETF', kind: 'etf-off' });
+
+      let shared = null;
+      if (state.scale === 'shared') {
+        let lo = 0, hi = 0;
+        for (const c of charts) if (c.rows) { const [a, b] = extent(c.rows); lo = Math.min(lo, a); hi = Math.max(hi, b); }
+        shared = niceDomain(lo, hi);
+      }
+      for (const c of charts) {
+        const card = el('div', { class: 'card chart-card' });
+        const now = el('div', { class: 'now' }, el('h3', { text: c.label + (c.stale ? '（舊資料）' : '') }));
+        card.append(now);
+        if (c.kind === 'etf-off') {
+          card.append(el('div', { class: 'empty', text: '填入 CoinAnk API key 後顯示' }));
+          grid.append(card); continue;
+        }
+        // 卡片右上：期間合計（不含疑似錢包變動）
+        let tot = 0, has = false; for (const o of c.rows) if (o.v != null) { tot += o.v; has = true; }
+        const val = el('span', { class: 'val' }, document.createTextNode(`${state.range === 365 ? '1 年' : state.range + ' 天'}合計 `), el('b', { text: has ? fmtSigned(tot, state.unit, coin) : '—' }));
+        now.append(val);
+        const plot = el('div', { class: 'plot' });
+        card.append(plot);
+        if (c.hint) card.append(el('div', { class: 'hint', style: 'color:var(--text-muted);font-size:11px;margin-top:2px', text: c.hint }));
+        grid.append(card);
+        c.plot = plot;
+      }
+      sec.append(grid);
+      root.append(sec);
+      // 等版面算好寬度再畫
+      for (const c of charts) if (c.plot) {
+        const dom = shared || (() => { const [a, b] = extent(c.rows); return niceDomain(a, b); })();
+        drawChart(c.plot, c.rows, dom, { label: `${c.label} ${coin}`, coin, kind: c.kind === 'etf' ? 'etf' : 'ex' });
+      }
+      // 表格
+      const tw = el('div', { class: 'tables' + (state.table === 'on' ? ' on' : '') });
+      const card = el('div', { class: 'card' });
+      const tbl = el('table');
+      const hr = el('tr', null, el('th', { text: axis.weekly ? '週（起）' : '日期（UTC）' }));
+      for (const c of charts) if (c.rows) hr.append(el('th', { text: c.label }));
+      tbl.append(el('thead', null, hr));
+      const tb = el('tbody');
+      for (let i = axis.buckets.length - 1; i >= 0; i--) {
+        const tr = el('tr', null, el('td', { text: axis.buckets[i].key }));
+        let any = false;
+        for (const c of charts) if (c.rows) { const o = c.rows[i]; if (o.v != null || o.anomaly) any = true; tr.append(cell(o.v, state.unit, coin, o.anomaly && o.v == null)); }
+        if (any) tb.append(tr);
+      }
+      tbl.append(tb); card.append(tbl); tw.append(card); sec.append(tw);
+    }
+  }
+
+  function renderAll() {
+    if (!DATA) return;
+    document.getElementById('updated').textContent = `更新於 ${taipei(DATA.updatedAt)}（台北）`;
+    if (!etfOn()) document.querySelector('.sub').textContent = 'Binance・OKX・Bybit 錢包每日淨流入／流出';
+    renderNotices(); renderSummary(); renderCoins();
+  }
+
+  // ---------- 篩選 ----------
+  function syncSeg() {
+    for (const seg of document.querySelectorAll('.seg')) {
+      const k = seg.dataset.key;
+      for (const b of seg.querySelectorAll('button')) b.setAttribute('aria-pressed', String(String(state[k]) === b.dataset.v));
+    }
+  }
+  for (const seg of document.querySelectorAll('.seg')) {
+    seg.addEventListener('click', (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      const k = seg.dataset.key; state[k] = k === 'range' ? Number(b.dataset.v) : b.dataset.v;
+      try { localStorage.setItem('flow-tracker-ui', JSON.stringify(state)); } catch (err) { /* 忽略 */ }
+      syncSeg(); renderAll();
+    });
+  }
+  syncSeg();
+
+  let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(renderCoins, 150); });
+
+  // ---------- 載入 ----------
+  async function load() {
+    const app = document.getElementById('app');
+    app.classList.add('loading');
+    try {
+      const r = await fetch('data.json', { cache: 'no-store' });
+      if (r.status === 503) { document.getElementById('updated').textContent = '第一次抓資料中，大約 1 分鐘…'; setTimeout(load, 10000); return; }
+      DATA = await r.json();
+      renderAll();
+    } catch (e) {
+      document.getElementById('updated').textContent = '讀取資料失敗：' + e.message;
+    } finally { app.classList.remove('loading'); }
+  }
+  const refreshBtn = document.getElementById('refresh');
+  if (refreshBtn) refreshBtn.addEventListener('click', async (e) => {
+    const b = e.currentTarget; b.disabled = true; const old = b.textContent; b.textContent = '更新中…';
+    try {
+      const r = await fetch('api/refresh', { method: 'POST' });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) alertBox(j.msg || '更新失敗');
+      await load();
+    } finally { b.disabled = false; b.textContent = old; }
+  });
+  function alertBox(msg) {
+    const box = document.getElementById('notices');
+    box.prepend(el('div', { class: 'notice' }, el('span', { class: 'icon', text: 'ℹ︎' }), document.createTextNode(msg)));
+  }
+  window.__render = (d) => { DATA = d; renderAll(); }; // 測試用
+  load();
+  setInterval(load, 15 * 60e3);
+})();
+</script>
+</body>
+</html>
